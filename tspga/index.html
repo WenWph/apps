@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <!-- <script>
+        (function() {
+          // 维护路径映射：小写路径 → 原大小写路径
+          const pathMap = {
+            '/kids/animals/index.html': '/Kids/Animals/index.html',
+            '/kids/englishpairs': '/Kids/EnglishPairs',
+            '/kids/englishwordgame': '/Kids/EnglishWordGame',
+            '/apptest/tsp_ga/index.html': '/APPTest/TSP_GA/index.html'
+          };
+        
+          const lowerPath = window.location.pathname.toLowerCase();
+          // 若映射表中存在该小写路径，重定向到原路径
+          if (pathMap[lowerPath]) {
+            window.location.href = window.location.origin + pathMap[lowerPath] + window.location.search + window.location.hash;
+          }
+        })();
+    </script> -->
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>遗传算法求解TSP问题</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+            margin: 0;
+            padding: 20px;
+            color: #333;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+        }
+        .controls {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 20px;
+            gap: 10px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        .info {
+            display: flex;
+            justify-content: space-around;
+            margin-bottom: 20px;
+            font-size: 18px;
+            font-weight: bold;
+        }
+        .info-item {
+            background-color: #ecf0f1;
+            padding: 10px 15px;
+            border-radius: 5px;
+        }
+        canvas {
+            border: 1px solid #ddd;
+            display: block;
+            margin: 0 auto;
+            background-color: #fff;
+        }
+        .legend {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #ecf0f1;
+            border-radius: 5px;
+        }
+        .legend h3 {
+            margin-top: 0;
+        }
+        .legend ul {
+            list-style-type: none;
+            padding-left: 20px;
+        }
+        .legend li {
+            margin-bottom: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>遗传算法求解旅行商问题(TSP)</h1>
+        
+        <div class="controls">
+            <button onclick="generatePoints()">生成随机点</button>
+            <button onclick="startGA()">开始遗传算法</button>
+            <button onclick="stopGA()">停止计算</button>
+            <button onclick="reset()">重置</button>
+        </div>
+        
+        <div class="info">
+            <div class="info-item">
+                迭代次数: <span id="iterations">0</span>
+            </div>
+            <div class="info-item">
+                最短距离: <span id="shortestDistance">0</span>
+            </div>
+            <div class="info-item">
+                平均距离: <span id="averageDistance">0</span>
+            </div>
+        </div>
+        
+        <canvas id="canvas" width="1000" height="600"></canvas>
+        
+        <div class="legend">
+            <h3>图例</h3>
+            <ul>
+                <li>⚪ 城市点</li>
+                <li>🔵 当前最优路径</li>
+                <li>🔴 起始点</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        // 画布设置
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // 遗传算法参数
+        const params = {
+            populationSize: 100,  // 种群大小
+            mutationRate: 0.01,    // 变异率
+            crossoverRate: 0.8,    // 交叉率
+            maxIterations: 10000,  // 最大迭代次数
+            elitism: true,         // 精英保留策略
+            elitismCount: 2        // 精英个体数量
+        };
+        
+        // 全局变量
+        let points = [];          // 城市点数组
+        let population = [];      // 种群
+        let bestPath = null;      // 最优路径
+        let shortestDistance = Infinity;  // 最短距离
+        let iterations = 0;       // 迭代次数
+        let isRunning = false;    // 算法是否运行中
+        let animationId = null;   // 动画ID
+        
+        // 生成随机点
+        function generatePoints() {
+            points = [];
+            for (let i = 0; i < 100; i++) {
+                const x = Math.random() * (canvas.width - 40) + 20;
+                const y = Math.random() * (canvas.height - 40) + 20;
+                points.push({
+                    key: i,
+                    x: x,
+                    y: y
+                });
+            }
+            reset();
+            draw();
+        }
+        
+        // 计算两点间的欧几里得距离
+        function calculateDistance(point1, point2) {
+            const dx = point1.x - point2.x;
+            const dy = point1.y - point2.y;
+            return Math.sqrt(dx * dx + dy * dy);
+        }
+        
+        // 计算路径总距离
+        function calculateTotalDistance(path) {
+            let totalDistance = 0;
+            for (let i = 0; i < path.length - 1; i++) {
+                totalDistance += calculateDistance(points[path[i]], points[path[i + 1]]);
+            }
+            // 回到起始点
+            totalDistance += calculateDistance(points[path[path.length - 1]], points[path[0]]);
+            return totalDistance;
+        }
+        
+        // 初始化种群
+        function initializePopulation() {
+            population = [];
+            for (let i = 0; i < params.populationSize; i++) {
+                // 生成随机路径
+                const path = [...Array(points.length).keys()];
+                // 打乱路径
+                for (let j = path.length - 1; j > 0; j--) {
+                    const k = Math.floor(Math.random() * (j + 1));
+                    [path[j], path[k]] = [path[k], path[j]];
+                }
+                const distance = calculateTotalDistance(path);
+                population.push({
+                    path: path,
+                    distance: distance
+                });
+            }
+            // 排序种群
+            population.sort((a, b) => a.distance - b.distance);
+            bestPath = population[0].path;
+            shortestDistance = population[0].distance;
+        }
+        
+        // 选择：轮盘赌选择
+        function selection() {
+            const totalFitness = population.reduce((sum, individual) => sum + (1 / individual.distance), 0);
+            const random = Math.random() * totalFitness;
+            let sum = 0;
+            
+            for (let i = 0; i < population.length; i++) {
+                sum += 1 / population[i].distance;
+                if (sum >= random) {
+                    return population[i];
+                }
+            }
+            return population[population.length - 1];
+        }
+        
+        // 交叉：部分映射交叉(PMX)
+        function crossover(parent1, parent2) {
+            const size = parent1.path.length;
+            const child = new Array(size).fill(null);
+            
+            // 随机选择交叉区间
+            const start = Math.floor(Math.random() * size);
+            const end = Math.floor(Math.random() * size);
+            const [min, max] = [Math.min(start, end), Math.max(start, end)];
+            
+            // 复制父1的交叉区间到子代
+            for (let i = min; i <= max; i++) {
+                child[i] = parent1.path[i];
+            }
+            
+            // 填充父2的基因
+            for (let i = 0; i < size; i++) {
+                if (i < min || i > max) {
+                    let gene = parent2.path[i];
+                    while (child.includes(gene)) {
+                        // 找到基因在父1中的位置，然后映射到父2对应位置的基因
+                        const index = parent1.path.indexOf(gene);
+                        gene = parent2.path[index];
+                    }
+                    child[i] = gene;
+                }
+            }
+            
+            return {
+                path: child,
+                distance: calculateTotalDistance(child)
+            };
+        }
+        
+        // 变异：交换变异
+        function mutate(individual) {
+            if (Math.random() < params.mutationRate) {
+                const path = [...individual.path];
+                const i = Math.floor(Math.random() * path.length);
+                const j = Math.floor(Math.random() * path.length);
+                [path[i], path[j]] = [path[j], path[i]];
+                return {
+                    path: path,
+                    distance: calculateTotalDistance(path)
+                };
+            }
+            return individual;
+        }
+        
+        // 遗传算法主循环
+        function geneticAlgorithmStep() {
+            if (!isRunning) return;
+            
+            const newPopulation = [];
+            
+            // 精英保留
+            if (params.elitism) {
+                for (let i = 0; i < params.elitismCount; i++) {
+                    newPopulation.push(population[i]);
+                }
+            }
+            
+            // 生成新种群
+            while (newPopulation.length < params.populationSize) {
+                // 选择父代
+                const parent1 = selection();
+                const parent2 = selection();
+                
+                let child;
+                // 交叉
+                if (Math.random() < params.crossoverRate) {
+                    child = crossover(parent1, parent2);
+                } else {
+                    // 不交叉，随机选择一个父代
+                    child = Math.random() < 0.5 ? parent1 : parent2;
+                }
+                
+                // 变异
+                child = mutate(child);
+                
+                newPopulation.push(child);
+            }
+            
+            // 更新种群
+            population = newPopulation;
+            population.sort((a, b) => a.distance - b.distance);
+            
+            // 更新最优解
+            if (population[0].distance < shortestDistance) {
+                bestPath = population[0].path;
+                shortestDistance = population[0].distance;
+            }
+            
+            iterations++;
+            
+            // 更新UI
+            updateUI();
+            draw();
+            
+            // 继续迭代
+            animationId = requestAnimationFrame(geneticAlgorithmStep);
+        }
+        
+        // 绘制
+        function draw() {
+            // 清空画布
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // 绘制所有点
+            ctx.fillStyle = "#ffffff";
+            ctx.strokeStyle = "#3498db";
+            ctx.lineWidth = 2;
+            for (const point of points) {
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 6, 0, 2 * Math.PI);
+                ctx.fill();
+                ctx.stroke();
+                
+                // 绘制点的Key
+                ctx.fillStyle = "#2c3e50";
+                ctx.font = "12px Arial";
+                ctx.textAlign = "center";
+                ctx.fillText(point.key, point.x, point.y + 20);
+            }
+            
+            // 绘制最优路径
+            if (bestPath && bestPath.length > 0) {
+                ctx.strokeStyle = "#3498db";
+                ctx.lineWidth = 2;
+                ctx.setLineDash([]);
+                ctx.beginPath();
+                ctx.moveTo(points[bestPath[0]].x, points[bestPath[0]].y);
+                for (let i = 1; i < bestPath.length; i++) {
+                    ctx.lineTo(points[bestPath[i]].x, points[bestPath[i]].y);
+                }
+                // 回到起点
+                ctx.lineTo(points[bestPath[0]].x, points[bestPath[0]].y);
+                ctx.stroke();
+                
+                // 标记起点
+                ctx.fillStyle = "#e74c3c";
+                ctx.beginPath();
+                ctx.arc(points[bestPath[0]].x, points[bestPath[0]].y, 8, 0, 2 * Math.PI);
+                ctx.fill();
+            }
+        }
+        
+        // 更新UI
+        function updateUI() {
+            document.getElementById('iterations').textContent = iterations;
+            document.getElementById('shortestDistance').textContent = shortestDistance.toFixed(2);
+            
+            // 计算平均距离
+            const averageDistance = population.reduce((sum, individual) => sum + individual.distance, 0) / population.length;
+            document.getElementById('averageDistance').textContent = averageDistance.toFixed(2);
+        }
+        
+        // 开始遗传算法
+        function startGA() {
+            if (points.length === 0) {
+                alert("请先生成随机点！");
+                return;
+            }
+            if (!isRunning) {
+                isRunning = true;
+                initializePopulation();
+                geneticAlgorithmStep();
+            }
+        }
+        
+        // 停止遗传算法
+        function stopGA() {
+            isRunning = false;
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+                animationId = null;
+            }
+        }
+        
+        // 重置
+        function reset() {
+            stopGA();
+            iterations = 0;
+            shortestDistance = Infinity;
+            bestPath = null;
+            population = [];
+            updateUI();
+            draw();
+        }
+        
+        // 初始化
+        function init() {
+            generatePoints();
+        }
+        
+        // 页面加载完成后初始化
+        window.onload = init;
+    </script>
+</body>
+</html>
